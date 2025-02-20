@@ -38,7 +38,7 @@ def AlphaBeta(strategy, market, plot=False):
         
     return alpha, beta
 
-def expanded_risk_metrics(strategy_returns, market_returns, rf_rate=0):
+def expanded_risk_metrics(strategy_returns, market_returns, rf_rate=0, annualize_para=np.sqrt(252)):
     # Sharpe Ratio
     excess_returns = strategy_returns - rf_rate
     sharpe = np.mean(excess_returns) / np.std(excess_returns)
@@ -47,27 +47,48 @@ def expanded_risk_metrics(strategy_returns, market_returns, rf_rate=0):
     alpha, beta = AlphaBeta(strategy_returns, market_returns)
     treynor = np.mean(excess_returns) / beta
     
-    # Information Ratio
-    tracking_error = np.std(strategy_returns - market_returns)
-    information_ratio = np.mean(strategy_returns - market_returns) / tracking_error
-    
     # Sortino Ratio
     downside_returns = strategy_returns[strategy_returns < 0]
     sortino = np.mean(excess_returns) / np.std(downside_returns)
     
     return {
-        'sharpe': sharpe,
-        'treynor': treynor,
-        'information_ratio': information_ratio,
+        'sharpe': annualize_para*sharpe,
+        'treynor': annualize_para**2*treynor,
         'sortino': sortino
     }
 
 def downside_metrics(strategy_returns, market_returns):
-
+    
     cum_returns = (1 + strategy_returns).cumprod()
     running_max = np.maximum.accumulate(cum_returns)
     drawdowns = (cum_returns - running_max) / running_max
+    
+    # Max Drawdown
     max_drawdown = np.min(drawdowns)
+    
+    # Max Drawdown Duration
+    drawdown_periods = []
+    current_duration = 0
+    peak = True
+    
+    for i in range(len(cum_returns)):
+        if peak:
+            if drawdowns[i] < 0:
+                peak = False
+                current_duration = 1
+        else:
+            if drawdowns[i] == 0:
+                peak = True
+                drawdown_periods.append(current_duration)
+                current_duration = 0
+            else:
+                current_duration += 1
+                
+    # If still in drawdown at the end, add the current duration
+    if current_duration > 0:
+        drawdown_periods.append(current_duration)
+        
+    max_drawdown_duration = max(drawdown_periods) if drawdown_periods else 0
     
     # Value at Risk (VaR)
     var_95 = np.percentile(strategy_returns, 5)
@@ -82,6 +103,7 @@ def downside_metrics(strategy_returns, market_returns):
     
     return {
         'max_drawdown': max_drawdown,
+        'max_drawdown_duration': max_drawdown_duration,
         'var_95': var_95,
         'cvar_95': cvar_95,
         'down_beta': down_beta
